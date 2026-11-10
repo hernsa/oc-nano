@@ -81,6 +81,7 @@ fn test_len_is_empty_clear_and_default() {
 fn test_from_entry_consumes_core_type() {
     let entry = SchemaCacheEntry {
         model: "model-a".to_string(),
+        hash: 42,
         schema_json: r#"{"type":"object"}"#.to_string(),
         inserted_at: 0,
         ttl_secs: 60,

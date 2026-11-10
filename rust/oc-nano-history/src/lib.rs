@@ -7,7 +7,8 @@
 //! full `Vec<Message>`.
 
 use std::path::PathBuf;
-use std::sync::{Arc, AtomicBool, Mutex, Ordering};
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use chrono::{TimeZone, Utc};
 use rusqlite::Connection;
@@ -181,7 +182,7 @@ impl HistoryStore {
         }
         let messages: Vec<Value> = serde_json::from_str(&messages_json).map_err(map_err_to_rusqlite)?;
         let now = Utc::now().to_rfc3339();
-        let lock = self.inner.conn.lock().unwrap();
+        let mut lock = self.inner.conn.lock().unwrap();
         let tx = lock.transaction().map_err(map_err_to_rusqlite)?;
         tx.execute(
             "INSERT OR IGNORE INTO conversations (id, created_at, updated_at) VALUES (?1, ?2, ?2)",
@@ -214,7 +215,7 @@ impl HistoryStore {
         if handle.0.closed.load(Ordering::SeqCst) {
             return Err(NanoError::Closed);
         }
-        let lock = self.inner.conn.lock().unwrap();
+        let mut lock = self.inner.conn.lock().unwrap();
         let tx = lock.transaction().map_err(map_err_to_rusqlite)?;
         let deleted_messages = tx
             .execute(

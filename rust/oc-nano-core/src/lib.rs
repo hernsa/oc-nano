@@ -32,6 +32,33 @@ pub enum MsgRole {
     Tool,
 }
 
+impl std::fmt::Display for MsgRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MsgRole::User => write!(f, "user"),
+            MsgRole::Assistant => write!(f, "assistant"),
+            MsgRole::System => write!(f, "system"),
+            MsgRole::Tool => write!(f, "tool"),
+        }
+    }
+}
+
+/// Alias for `MsgRole`, used by the prompt arena.
+pub type Role = MsgRole;
+
+/// A message in the compaction pipeline.
+///
+/// Fields mirror [`Message`] but use primitive IDs (`u64`/`i64`) so the type
+/// can cross FFI boundaries as JSON without pulling in `Uuid`/`SessionId`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NanoMessage {
+    pub id: u64,
+    pub conversation_id: i64,
+    pub role: MsgRole,
+    pub content: String,
+    pub attachment_ids: Vec<String>,
+}
+
 /// A single conversation message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Message {
@@ -72,6 +99,8 @@ pub struct SchemaCacheEntry {
     pub model: String,
     pub hash: u64,
     pub schema_json: String,
+    pub ttl_secs: u64,
+    pub inserted_at: u64,
 }
 
 /// Error type for oc-nano.

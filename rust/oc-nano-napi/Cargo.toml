@@ -6,3 +6,24 @@ edition = "2021"
 [lib]
 name = "oc_nano_native"
 crate-type = ["cdylib"]
+
+[dependencies]
+napi = "3"
+napi-derive = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+dashmap = "6"
+lru = "0.8"
+fxhash = "0.2"
+rusqlite = { version = "0.31", features = ["bundled"] }
+chrono = "0.4"
+thiserror = "1"
+
+oc-nano-core = { path = "../oc-nano-core" }
+oc-nano-history = { path = "../oc-nano-history" }
+oc-nano-schema = { path = "../oc-nano-schema" }
+oc-nano-state = { path = "../oc-nano-state" }
+oc-nano-prompt = { path = "../oc-nano-prompt" }
+oc-nano-compaction = { path = "../oc-nano-compaction" }
+oc-nano-instructions = { path = "../oc-nano-instructions" }
