@@ -11,3 +11,7 @@ Cargo.lock
 # OS
 .DS_Store
 Thumbs.db
+
+# Pre-built Node.js native binary (large, not part of source; kept out of git)
+rust/libnode.dll
+rust/libnode.dll.a
