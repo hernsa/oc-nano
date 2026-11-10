@@ -12,6 +12,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::sync::atomic::{AtomicI64, Ordering};
 
+use napi::bindgen_prelude::Uint8Array;
+
 use oc_nano_core::{
     BINARY_NAME, CONFIG_DIR_NAME, DATA_DIR_NAME, MsgRole, NanoMessage,
 };
@@ -414,21 +416,21 @@ fn prompt_materialize(conversation_id: i64) -> napi::Result<String> {
 fn prompt_add_attachment(
     _conversation_id: i64,
     attachment_id: String,
-    bytes: Vec<u8>,
+    bytes: Uint8Array,
 ) -> napi::Result<()> {
     wrap_napi(|| {
         let arena = prompt_arena();
-        arena.add_attachment(attachment_id, bytes);
+        arena.add_attachment(attachment_id, bytes.to_vec());
         Ok(())
     })?
 }
 
 #[napi_derive::napi]
-fn prompt_get_attachment(attachment_id: String) -> napi::Result<Vec<u8>> {
+fn prompt_get_attachment(attachment_id: String) -> napi::Result<Uint8Array> {
     wrap_napi(|| {
         let arena = prompt_arena();
         match arena.get_attachment(&attachment_id) {
-            Some(bytes) => Ok(bytes),
+            Some(bytes) => Ok(Uint8Array::from(bytes)),
             None => Err(napi::Error::from_reason("attachment not found")),
         }
     })?
