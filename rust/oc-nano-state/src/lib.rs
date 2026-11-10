@@ -74,7 +74,12 @@ impl StatePool {
     /// When it is new it is inserted; if that pushes the pool over capacity
     /// the least-recently-used instance is evicted automatically.
     pub fn acquire(&self, instance_id: &str, config_json: &str, ttl_secs: i64) -> String {
-        let ttl = Duration::from_secs(ttl_secs.max(0) as u64);
+        // Non-positive TTL falls back to the pool's default TTL.
+        let ttl = if ttl_secs > 0 {
+            Duration::from_secs(ttl_secs as u64)
+        } else {
+            self.default_ttl
+        };
         let now = Instant::now();
 
         let fresh = PooledInstance {
