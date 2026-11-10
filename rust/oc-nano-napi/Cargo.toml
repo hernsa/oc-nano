@@ -1,0 +1,8 @@
+[package]
+name = "oc-nano-napi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "oc_nano_native"
+crate-type = ["cdylib"]

@@ -1,0 +1,11 @@
+[package]
+name = "oc-nano-schema"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+oc-nano-core = { path = "../oc-nano-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dashmap = "6"
+fxhash = "0.2"

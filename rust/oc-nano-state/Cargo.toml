@@ -1,0 +1,9 @@
+[package]
+name = "oc-nano-state"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+oc-nano-core = { path = "../oc-nano-core" }
+lru = "0.8"
+dashmap = { version = "5", optional = true }

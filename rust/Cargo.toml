@@ -1,0 +1,19 @@
+[workspace]
+members = [
+    "oc-nano-core",
+    "oc-nano-history",
+    "oc-nano-schema",
+    "oc-nano-state",
+    "oc-nano-prompt",
+    "oc-nano-compaction",
+    "oc-nano-instructions",
+    "oc-nano-napi",
+]
+
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+panic = "abort"
+lto = true

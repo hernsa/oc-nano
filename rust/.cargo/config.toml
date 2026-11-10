@@ -1,0 +1,6 @@
+[target.x86_64-pc-windows-gnu]
+# The MinGW gcc driver is present, but this MinGW install ships no ld.exe /
+# collect2.exe, so linking build scripts (and crates) fails. rustup's
+# llvm-tools component provides rust-lld; use its ld.lld flavor as the linker.
+linker = "C:\\Users\\Admin\\.rustup\\toolchains\\stable-x86_64-pc-windows-gnu\\lib\\rustlib\\x86_64-pc-windows-gnu\\bin\\gcc-ld\\ld.lld.exe"
+linker-flavor = "ld.lld"
