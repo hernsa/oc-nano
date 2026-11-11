@@ -15,5 +15,7 @@ resolver = "2"
 [profile.release]
 opt-level = 3
 codegen-units = 1
-panic = "abort"
+# MUST stay "unwind": the napi layer wraps every binding in catch_unwind so a
+# Rust panic becomes a catchable JS Error instead of aborting the host process.
+panic = "unwind"
 lto = true
