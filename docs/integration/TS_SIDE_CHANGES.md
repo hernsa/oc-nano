@@ -2,7 +2,7 @@
 
 This document records the exact per-hot-path TypeScript edits required to swap
 OpenCode's bloated memory hot paths for the oc-nano native bindings exposed in
-`src/napi-bindings.ts` (28 #[napi] bindings over `oc_nano_native.dll`).
+`src/napi-bindings.ts` (29 #[napi] bindings over `oc_nano_native.dll`).
 
 **NOTE:** The OpenCode repository source is **not** available locally (C drive
 critically low; no clone / no large downloads permitted). These edits are
@@ -39,6 +39,14 @@ message array; lines 172-222 handle attachment resolution and re-encoding.
 **Notes:** `conversation_id` crosses FFI as an `i64` internal handle (see the
 napi-rs crate comment at the top of `rust/oc-nano-napi/src/lib.rs`). The TS
 side must map OpenCode conversation ids to arena handles.
+
+**Attachment retention (bounded):** the arena keeps attachment bytes in an
+LRU capped at 8 MiB and 128 entries (`oc_nano_prompt::ATTACHMENT_BYTE_BUDGET`),
+not forever. `prompt_attachment_byte_budget() -> u32` reports that cap so the
+TS side can skip the FFI copy for payloads that would be rejected anyway.
+`prompt_add_attachment` also ignores a payload larger than the budget.
+Callers should treat an unknown budget (an older binary) as "do not populate
+the arena" rather than assuming a cache is present.
 
 ---
 
