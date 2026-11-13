@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 dashmap = "6"
+lru = "0.8"
 oc-nano-core = { path = "../oc-nano-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

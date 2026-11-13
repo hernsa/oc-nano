@@ -413,12 +413,21 @@ fn prompt_materialize(conversation_id: i64) -> napi::Result<String> {
 }
 
 #[napi_derive::napi]
+fn prompt_attachment_byte_budget() -> u32 {
+    oc_nano_prompt::ATTACHMENT_BYTE_BUDGET as u32
+}
+
+#[napi_derive::napi]
 fn prompt_add_attachment(
     _conversation_id: i64,
     attachment_id: String,
     bytes: Uint8Array,
 ) -> napi::Result<()> {
     wrap_napi(|| {
+        // Avoid copying an oversized payload across the native boundary just to discard it.
+        if bytes.len() > oc_nano_prompt::ATTACHMENT_BYTE_BUDGET {
+            return Ok(());
+        }
         let arena = prompt_arena();
         arena.add_attachment(attachment_id, bytes.to_vec());
         Ok(())

@@ -7,10 +7,20 @@
 //!   round-trip anywhere in the hot path.
 
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::num::NonZeroUsize;
+use std::sync::{Arc, Mutex};
 
 use dashmap::DashMap;
+use lru::LruCache;
 use oc_nano_core::{DEFAULT_RAM_MESSAGE_CAP, NanoId, NanoMessage, Role};
+
+pub const ATTACHMENT_BYTE_BUDGET: usize = 8 * 1024 * 1024;
+const ATTACHMENT_ENTRY_LIMIT: usize = 128;
+
+struct AttachmentCache {
+    entries: LruCache<String, Vec<u8>>,
+    bytes: usize,
+}
 
 // ---------------------------------------------------------------------------
 // Stored message
@@ -44,7 +54,7 @@ pub struct PromptArena {
     pub messages: DashMap<u64, StoredMessage>,
     pub conversations: DashMap<i64, Vec<u64>>,
     pub conversation_handles: DashMap<NanoId, i64>,
-    pub attachments: DashMap<String, Vec<u8>>,
+    attachments: Mutex<AttachmentCache>,
     pub next_id: AtomicU64,
     pub next_handle: AtomicI64,
 }
@@ -56,7 +66,10 @@ impl PromptArena {
             messages: DashMap::new(),
             conversations: DashMap::new(),
             conversation_handles: DashMap::new(),
-            attachments: DashMap::new(),
+            attachments: Mutex::new(AttachmentCache {
+                entries: LruCache::new(NonZeroUsize::new(ATTACHMENT_ENTRY_LIMIT).unwrap()),
+                bytes: 0,
+            }),
             next_id: AtomicU64::new(1),
             next_handle: AtomicI64::new(1),
         }
@@ -145,12 +158,27 @@ impl PromptArena {
 
     /// Store raw attachment bytes under `id` (no base64).
     pub fn add_attachment(&self, id: String, bytes: Vec<u8>) {
-        self.attachments.insert(id, bytes);
+        let mut cache = self.attachments.lock().unwrap();
+        if let Some(previous) = cache.entries.pop(&id) {
+            cache.bytes -= previous.len();
+        }
+        if bytes.len() > ATTACHMENT_BYTE_BUDGET {
+            return;
+        }
+        while cache.bytes + bytes.len() > ATTACHMENT_BYTE_BUDGET
+            || cache.entries.len() >= ATTACHMENT_ENTRY_LIMIT
+        {
+            if let Some((_, evicted)) = cache.entries.pop_lru() {
+                cache.bytes -= evicted.len();
+            }
+        }
+        cache.bytes += bytes.len();
+        cache.entries.put(id, bytes);
     }
 
     /// Get raw attachment bytes by id (no base64 re-encode).
     pub fn get_attachment(&self, id: &str) -> Option<Vec<u8>> {
-        self.attachments.get(id).map(|entry| entry.clone())
+        self.attachments.lock().unwrap().entries.get(id).cloned()
     }
 
     /// Materialize a conversation into a single string.
@@ -200,5 +228,49 @@ impl PromptArena {
 impl Default for PromptArena {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attachments_evict_least_recently_used_within_byte_budget() {
+        let arena = PromptArena::new();
+        arena.add_attachment("first".into(), vec![1; 4 * 1024 * 1024]);
+        arena.add_attachment("second".into(), vec![2; 4 * 1024 * 1024]);
+        assert!(arena.get_attachment("first").is_some());
+        arena.add_attachment("third".into(), vec![3; 4 * 1024 * 1024]);
+        assert!(arena.get_attachment("second").is_none());
+        assert!(arena.get_attachment("first").is_some());
+        assert!(arena.get_attachment("third").is_some());
+    }
+
+    #[test]
+    fn oversized_attachments_are_not_retained() {
+        let arena = PromptArena::new();
+        arena.add_attachment("large".into(), vec![0; 8 * 1024 * 1024 + 1]);
+        assert!(arena.get_attachment("large").is_none());
+    }
+
+    #[test]
+    fn attachments_are_entry_bounded_even_when_empty() {
+        let arena = PromptArena::new();
+        for id in 0..129 {
+            arena.add_attachment(id.to_string(), vec![]);
+        }
+        assert!(arena.get_attachment("0").is_none());
+        assert!(arena.get_attachment("128").is_some());
+    }
+
+    #[test]
+    fn replacement_does_not_double_count_bytes() {
+        let arena = PromptArena::new();
+        arena.add_attachment("first".into(), vec![1; 4 * 1024 * 1024]);
+        arena.add_attachment("first".into(), vec![2; 4 * 1024 * 1024]);
+        arena.add_attachment("second".into(), vec![3; 4 * 1024 * 1024]);
+        assert_eq!(arena.get_attachment("first").unwrap()[0], 2);
+        assert!(arena.get_attachment("second").is_some());
     }
 }

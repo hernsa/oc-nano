@@ -544,6 +544,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "dashmap 6.2.1",
+ "lru",
  "oc-nano-core",
  "serde",
  "serde_json",
