@@ -72,3 +72,68 @@ fn test_materialize_format() {
     let empty = arena.materialize(999);
     assert!(empty.is_empty());
 }
+
+#[test]
+fn test_enforce_ram_cap_evicts_oldest_messages() {
+    // DEFAULT_RAM_MESSAGE_CAP is 2000; use a tiny cap by adding many messages
+    // to a conversation then enforcing.
+    let arena = PromptArena::new();
+    let conv_id = 42;
+
+    // Add 5 messages to the conversation
+    let mut ids = Vec::new();
+    for i in 0..5 {
+        ids.push(arena.add_message_to_conversation(conv_id, Role::User, format!("msg-{i}")));
+    }
+
+    // With only 5 messages, nothing should be evicted (cap is 2000)
+    assert_eq!(arena.enforce_ram_cap(conv_id), 0);
+    for id in &ids {
+        assert!(arena.get_message(*id).is_some());
+    }
+
+    // Now manually trim the conversation vec to simulate being over cap,
+    // then verify enforcement evicts from the front (oldest first).
+    // We do this by directly manipulating: remove 3 oldest, expect them gone.
+    let mut ids_ref = arena.conversations.get(&conv_id).unwrap().clone();
+    let oldest = ids_ref[0];
+    let middle = ids_ref[2];
+    let newest = ids_ref[4];
+
+    // Manually evict the 2 oldest to simulate being just under cap, then add
+    // one more to go over, then enforce.
+    arena.messages.remove(&ids_ref[0]);
+    arena.messages.remove(&ids_ref[1]);
+    let mut conv_ids = arena.conversations.get_mut(&conv_id).unwrap();
+    conv_ids.drain(..2);
+
+    arena.add_message_to_conversation(conv_id, Role::User, "new-msg".to_string());
+
+    // Now 4 messages remain (3 old + 1 new), still under cap
+    assert_eq!(arena.enforce_ram_cap(conv_id), 0);
+    assert!(arena.get_message(oldest).is_none());
+    assert!(arena.get_message(middle).is_none());
+    assert!(arena.get_message(newest).is_some());
+}
+
+#[test]
+fn test_enforce_ram_cap_evicts_when_over_cap() {
+    // Add DEFAULT_RAM_MESSAGE_CAP + 3 messages to a conversation, then enforce.
+    let arena = PromptArena::new();
+    let conv_id = 99;
+
+    let mut all_ids = Vec::new();
+    for i in 0..oc_nano_core::DEFAULT_RAM_MESSAGE_CAP + 3 {
+        all_ids.push(arena.add_message_to_conversation(conv_id, Role::User, format!("msg-{i}")));
+    }
+
+    let evicted = arena.enforce_ram_cap(conv_id);
+    assert_eq!(evicted, 3);
+
+    // The 3 oldest should be gone, the rest should remain
+    assert!(arena.get_message(all_ids[0]).is_none());
+    assert!(arena.get_message(all_ids[1]).is_none());
+    assert!(arena.get_message(all_ids[2]).is_none());
+    assert!(arena.get_message(all_ids[3]).is_some());
+    assert!(arena.get_message(all_ids[oc_nano_core::DEFAULT_RAM_MESSAGE_CAP + 2]).is_some());
+}

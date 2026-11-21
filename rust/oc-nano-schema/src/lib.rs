@@ -4,10 +4,10 @@
 //! deep-copy: a model's tool-set schema is serialized once and stored in a
 //! `DashMap` keyed by `(model, tool_set_hash)`.
 //!
-//! The hash is computed with `fxhash::FxHasher` (fixed seed), so the same
+//! The hash is computed with `siphasher::SipHasher` (fixed keys), so the same
 //! tool-set JSON always yields the same `u64`, even in a different process.
-//! This is the key fix for the `DefaultHasher` random-seed issue that caused
-//! cache misses after every process restart.
+//! SipHash is a keyed, DoS-resistant hash function — unlike `FxHash`, an attacker
+//! who can influence tool-set JSON cannot cheaply engineer hash collisions.
 //!
 //! Entries carry a TTL (in seconds) and are evicted lazily on `get` and
 //! eagerly via `evict_expired`. No input schema is ever deep-copied on read.
@@ -20,8 +20,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
-use fxhash::FxHasher;
-use std::hash::Hasher;
+use std::hash::{Hasher, SipHasher};
 
 use oc_nano_core::SchemaCacheEntry;
 
@@ -101,11 +100,13 @@ impl SchemaCache {
 
     /// Compute a cross-process-stable hash of a tool-set JSON string.
     ///
-    /// Uses `fxhash::FxHasher` with its fixed seed, so the same input always
-    /// yields the same `u64`, even in a different process. This is the key
-    /// fix for the `DefaultHasher` random-seed cache-miss issue.
+    /// Uses `siphasher::SipHasher` with fixed keys, so the same input always
+    /// yields the same `u64`, even in a different process. SipHash is
+    /// DoS-resistant — an attacker who can influence tool-set JSON cannot
+    /// cheaply engineer hash collisions (unlike `FxHash`).
+    #[allow(deprecated)]
     pub fn hash_tool_set(tools_json: &str) -> u64 {
-        let mut hasher = FxHasher::default();
+        let mut hasher = SipHasher::new_with_keys(0, 0);
         hasher.write(tools_json.as_bytes());
         hasher.finish()
     }

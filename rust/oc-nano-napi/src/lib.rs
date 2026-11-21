@@ -62,7 +62,7 @@ fn history_registry() -> &'static HistoryHandleRegistry {
     })
 }
 
-/// Global tool-schema cache (FxHash-backed, cross-process stable).
+/// Global tool-schema cache (SipHash-backed, cross-process stable, DoS-resistant).
 static SCHEMA_CACHE: OnceLock<SchemaCache> = OnceLock::new();
 
 fn schema_cache() -> &'static SchemaCache {

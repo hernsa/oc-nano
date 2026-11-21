@@ -212,16 +212,31 @@ impl PromptArena {
         out
     }
 
-    /// Return how many messages in `conversation_handle` exceed the RAM cap.
+    /// Evict messages from `conversation_handle` when the count exceeds `DEFAULT_RAM_MESSAGE_CAP`.
     ///
-    /// Returns `0` when the conversation is at or under the cap.
+    /// Evicts the oldest messages first (ids are monotonically increasing, so the front of the
+    /// per-conversation id vec is the oldest). Returns how many messages were evicted.
     pub fn enforce_ram_cap(&self, conversation_handle: i64) -> i64 {
-        let count = self
+        let over = self
             .conversations
             .get(&conversation_handle)
-            .map(|ids| ids.len())
+            .map(|ids| ids.len().saturating_sub(DEFAULT_RAM_MESSAGE_CAP))
             .unwrap_or(0);
-        count.saturating_sub(DEFAULT_RAM_MESSAGE_CAP) as i64
+        if over == 0 {
+            return 0;
+        }
+
+        let mut evicted = 0;
+        if let Some(mut ids) = self.conversations.get_mut(&conversation_handle) {
+            let to_evict = over.min(ids.len());
+            // ids are pushed to the end, so the front is the oldest. Drain from the front.
+            let evict_ids: Vec<u64> = ids.drain(..to_evict).collect();
+            for id in evict_ids {
+                self.messages.remove(&id);
+                evicted += 1;
+            }
+        }
+        evicted as i64
     }
 }
 
