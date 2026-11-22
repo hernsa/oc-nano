@@ -57,19 +57,58 @@ impl HistoryStore {
     /// Open (or create) the history database at `db_path`, creating parent
     /// directories as needed, then apply the embedded schema and a bounded page
     /// cache via `PRAGMA cache_size = -cache_size_kb` (negative = kibibytes).
+    ///
+    /// The `db_path` is sanitized before use: `..` path-traversal components are
+    /// rejected, and the resolved path must remain within the current working
+    /// directory (the allowed data directory). This prevents an attacker from
+    /// causing the store to create or open a SQLite database at an arbitrary
+    /// location.
     pub fn open(db_path: impl Into<PathBuf>, cache_size_kb: i64) -> NanoResult<HistoryStore> {
         let db_path = db_path.into();
-        if let Some(parent) = db_path.parent() {
+
+        // Reject path traversal via `..` components.
+        if db_path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(NanoError::InvalidInput(
+                "path traversal not allowed in db_path".to_string(),
+            ));
+        }
+
+        // Resolve relative paths against the current working directory, then
+        // verify the resolved path stays within it (the allowed data directory).
+        let resolved = if db_path.is_absolute() {
+            db_path
+        } else {
+            std::env::current_dir()
+                .map_err(map_err_to_rusqlite)?
+                .join(&db_path)
+        };
+
+        let canonical_root = std::env::current_dir()
+            .map_err(map_err_to_rusqlite)?
+            .canonicalize()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        let canonical_resolved = resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
+
+        if !canonical_resolved.starts_with(&canonical_root) {
+            return Err(NanoError::InvalidInput(
+                "db_path outside allowed directory".to_string(),
+            ));
+        }
+
+        if let Some(parent) = resolved.parent() {
             std::fs::create_dir_all(parent).map_err(map_err_to_rusqlite)?;
         }
-        let conn = Connection::open(&db_path).map_err(map_err_to_rusqlite)?;
+        let conn = Connection::open(&resolved).map_err(map_err_to_rusqlite)?;
         conn.execute_batch(&format!("PRAGMA cache_size = {}", -cache_size_kb))
             .map_err(map_err_to_rusqlite)?;
         conn.execute_batch(SCHEMA_SQL).map_err(map_err_to_rusqlite)?;
         Ok(HistoryStore {
             inner: Arc::new(HistoryStoreInner {
                 conn: Mutex::new(conn),
-                db_path,
+                db_path: resolved,
                 cache_size_kb,
                 closed: AtomicBool::new(false),
             }),

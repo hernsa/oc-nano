@@ -6,9 +6,12 @@
  * `number`. All async bindings return a `Promise`.
  *
  * The native library is loaded lazily by `loadNapi()`. Resolution order:
- *   1. env var `OPENACODE_LEAN_NAPI_DLL` (documented, overridable)
- *   2. relative to `process.cwd()`  (`./oc_nano_native.dll`)
- *   3. default `rust/target/release/oc_nano_native.dll` (workspace-relative)
+ *   1. relative to `process.cwd()`  (`./oc_nano_native.dll`)
+ *   2. default `rust/target/release/oc_nano_native.dll` (workspace-relative)
+ *
+ * The `OPENACODE_LEAN_NAPI_DLL` environment variable is no longer honored:
+ * allowing an attacker-controlled environment variable to override the DLL
+ * load path is a DLL-hijack vector (C3).
  *
  * Usage:
  *   import { loadNapi, getNapi } from "./src/napi-bindings";
@@ -102,21 +105,16 @@ const DEFAULT_DLL_NAME = "oc_nano_native.dll";
 const RELEASE_DIR = "rust/target/release";
 
 function resolveDllPath(dllPath?: string): string {
-  // 1. env var override (documented)
-  const fromEnv = process.env.OPENACODE_LEAN_NAPI_DLL;
-  if (fromEnv && fromEnv.trim().length > 0) {
-    return fromEnv.trim();
-  }
-  // 2. explicit argument
+  // explicit argument
   if (dllPath && dllPath.trim().length > 0) {
     return dllPath.trim();
   }
-  // 3. relative to cwd
+  // relative to cwd
   const cwdRelative = `${process.cwd()}/${DEFAULT_DLL_NAME}`;
   return cwdRelative;
-  // 4. workspace-relative default (rust/target/release/oc_nano_native.dll)
-  //    handled by callers that know the workspace root; here we fall back to
-  //    the release dir relative to cwd.
+  // workspace-relative default (rust/target/release/oc_nano_native.dll)
+  // handled by callers that know the workspace root; here we fall back to
+  // the release dir relative to cwd.
 }
 
 // ---------------------------------------------------------------------------
