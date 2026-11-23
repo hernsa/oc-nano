@@ -18,3 +18,7 @@ rust/libnode.dll.a
 
 # MSVC build artifact
 oc_nano_native.msvc.dll
+
+# Local build helper artifacts (node.lib / generated import libs)
+rust/nodelib/
+
