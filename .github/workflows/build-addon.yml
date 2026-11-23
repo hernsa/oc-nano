@@ -1,0 +1,71 @@
+name: Build native addon
+
+# Compiles oc_nano_native.node on a clean Windows runner (which has Visual
+# Studio Build Tools pre-installed). This bypasses the local build problem:
+# the C1/C2/C3 Rust security fixes are committed but the .node binary could
+# not be rebuilt on the dev machine (no working MSVC linker / VS install).
+#
+# Trigger manually with a tag or workflow_dispatch; the built .node is
+# uploaded as an artifact and also attached to a GitHub release if a tag
+# is pushed.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "addon-*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Set up Rust (MSVC target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Download node.lib
+        shell: pwsh
+        run: |
+          $ver = (node -p "process.versions.node")
+          $dir = Join-Path $env:GITHUB_WORKSPACE "node-lib"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Invoke-WebRequest -Uri "https://nodejs.org/dist/v$ver/win-x64/node.lib" -OutFile (Join-Path $dir "node.lib")
+          "LIBNODE_PATH=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build addon (MSVC)
+        shell: pwsh
+        working-directory: rust
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc --package oc-nano-napi
+
+      - name: Stage addon as .node
+        shell: pwsh
+        run: |
+          $src = Join-Path $env:GITHUB_WORKSPACE "rust/target/x86_64-pc-windows-msvc/release/oc_nano_native.dll"
+          if (-not (Test-Path $src)) { throw "Build produced no addon at $src" }
+          Copy-Item $src (Join-Path $env:GITHUB_WORKSPACE "oc_nano_native.node")
+          Get-Item (Join-Path $env:GITHUB_WORKSPACE "oc_nano_native.node") | Select-Object Name, Length
+
+      - name: Upload addon artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oc_nano_native-node-windows-x64
+          path: oc_nano_native.node
+
+      - name: Attach to release (on tag)
+        if: startsWith(github.ref, 'refs/tags/addon-')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: oc_nano_native.node
