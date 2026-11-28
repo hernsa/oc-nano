@@ -24,7 +24,7 @@ fn test_add_message_to_conversation_role() {
 #[test]
 fn test_register_conversation_handle() {
     let arena = PromptArena::new();
-    let id = oc_nano_core::NanoId::new();
+    let id = oc_nano_core::NanoId(uuid::Uuid::new_v4());
     let h1 = arena.register_conversation(id);
     let h2 = arena.register_conversation(id); // same id -> same handle
     assert_eq!(h1, h2);
