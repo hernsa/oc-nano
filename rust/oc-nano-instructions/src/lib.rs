@@ -20,6 +20,13 @@ struct CachedInstruction {
     cached_at: SystemTime,
 }
 
+/// Largest number of paths the store keeps interned at once.
+///
+/// The cache is keyed by path, so an unbounded map would grow with every
+/// distinct instruction file the host ever reads. The oldest entry is dropped
+/// once the map is over the cap.
+pub const MAX_CACHED_ENTRIES: usize = 256;
+
 /// A store of file contents interned by path.
 ///
 /// Each unique path is read from disk at most once. Contents are stored as
@@ -30,14 +37,16 @@ struct CachedInstruction {
 /// no unbounded concurrent file reads.
 ///
 /// Access is restricted to files within `root_dir` (path traversal is
-/// rejected), individual files are capped at `max_file_size`, and cached
-/// entries expire after `ttl_seconds`.
+/// rejected), individual files are capped at `max_file_size`, cached
+/// entries expire after `ttl_seconds`, and the cache holds at most
+/// `max_entries` paths.
 #[derive(Debug)]
 pub struct InstructionsStore {
     inner: DashMap<String, CachedInstruction>,
     root_dir: PathBuf,
     max_file_size: usize,
     ttl_seconds: u64,
+    max_entries: usize,
 }
 
 impl Default for InstructionsStore {
@@ -60,6 +69,7 @@ impl InstructionsStore {
             root_dir,
             max_file_size: 1024 * 1024, // 1 MiB
             ttl_seconds: 300,           // 5 minutes
+            max_entries: MAX_CACHED_ENTRIES,
         }
     }
 
@@ -133,7 +143,38 @@ impl InstructionsStore {
         };
 
         self.inner.insert(path.to_string(), cached);
+        self.enforce_capacity();
         Ok(content)
+    }
+
+    /// Keeps the cache within `max_entries`.
+    ///
+    /// Expired entries go first; when that is not enough, the oldest entries
+    /// are dropped until the map is back within capacity. Without a cap the
+    /// cache grows with every distinct path that is ever read.
+    fn enforce_capacity(&self) {
+        if self.inner.len() <= self.max_entries {
+            return;
+        }
+        let now = SystemTime::now();
+        self.inner.retain(|_, entry| {
+            now.duration_since(entry.cached_at)
+                .unwrap_or(Duration::MAX)
+                < Duration::from_secs(self.ttl_seconds)
+        });
+        while self.inner.len() > self.max_entries {
+            let oldest = self
+                .inner
+                .iter()
+                .min_by_key(|entry| entry.value().cached_at)
+                .map(|entry| entry.key().clone());
+            match oldest {
+                Some(key) => {
+                    self.inner.remove(&key);
+                }
+                None => break,
+            }
+        }
     }
 
     /// Evicts the cached contents for `path`.
@@ -247,5 +288,28 @@ mod tests {
         assert!(store.load(tmp_str).is_err());
 
         let _ = std::fs::remove_file(tmp_str);
+    }
+
+    #[test]
+    fn test_instructions_drops_the_oldest_entry_over_capacity() {
+        let dir = std::env::current_dir()
+            .unwrap()
+            .join("oc_nano_instructions_capacity");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let store = InstructionsStore::with_root(dir.clone());
+        let count = MAX_CACHED_ENTRIES + 20;
+        for index in 0..count {
+            let path = dir.join(format!("file-{index}.md"));
+            std::fs::write(&path, format!("body {index}")).unwrap();
+            store.load(path.to_str().unwrap()).unwrap();
+        }
+
+        // The map never grows past the cap, and the newest path survives.
+        assert!(store.len() <= MAX_CACHED_ENTRIES);
+        let newest = dir.join(format!("file-{}.md", count - 1));
+        assert!(store.load(newest.to_str().unwrap()).is_ok());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

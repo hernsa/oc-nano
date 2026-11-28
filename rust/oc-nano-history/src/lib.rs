@@ -10,11 +10,24 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use chrono::{TimeZone, Utc};
+use chrono::Utc;
 use rusqlite::Connection;
 use serde_json::Value;
 
 use oc_nano_core::{NanoError, NanoResult};
+
+/// Largest single message the store accepts (1 MiB).
+///
+/// The message arrives as one JSON string that is parsed and written as a row.
+/// The cap is checked before the parse, so an oversized payload is rejected
+/// rather than turned into an oversized allocation.
+pub const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
+
+/// Largest conversation payload one spill accepts (16 MiB).
+pub const MAX_SPILL_BYTES: usize = 16 * 1024 * 1024;
+
+/// Largest number of rows one spill may write.
+pub const MAX_SPILL_MESSAGES: usize = 10_000;
 
 /// Embedded DDL for the `conversations` and `messages` tables plus indexes.
 pub const SCHEMA_SQL: &str = r#"
@@ -135,6 +148,13 @@ impl HistoryStore {
         if handle.0.closed.load(Ordering::SeqCst) {
             return Err(NanoError::Closed);
         }
+        // Check the size before parsing: the parse is what turns a large input
+        // into a large allocation.
+        if message_json.len() > MAX_MESSAGE_BYTES {
+            return Err(NanoError::InvalidInput(format!(
+                "message exceeds {MAX_MESSAGE_BYTES} bytes"
+            )));
+        }
         let value: Value = serde_json::from_str(&message_json).map_err(map_err_to_rusqlite)?;
         let id: &str = value.get("id").and_then(|v| v.as_str()).unwrap_or("");
         let conversation_id: &str = value
@@ -219,7 +239,19 @@ impl HistoryStore {
         if handle.0.closed.load(Ordering::SeqCst) {
             return Err(NanoError::Closed);
         }
+        // Both caps are checked before the parse: the whole conversation is
+        // materialised in memory, so the size has to be bounded first.
+        if messages_json.len() > MAX_SPILL_BYTES {
+            return Err(NanoError::InvalidInput(format!(
+                "conversation payload exceeds {MAX_SPILL_BYTES} bytes"
+            )));
+        }
         let messages: Vec<Value> = serde_json::from_str(&messages_json).map_err(map_err_to_rusqlite)?;
+        if messages.len() > MAX_SPILL_MESSAGES {
+            return Err(NanoError::InvalidInput(format!(
+                "conversation holds more than {MAX_SPILL_MESSAGES} messages"
+            )));
+        }
         let now = Utc::now().to_rfc3339();
         let mut lock = self.inner.conn.lock().unwrap();
         let tx = lock.transaction().map_err(map_err_to_rusqlite)?;
@@ -288,4 +320,54 @@ impl HistoryStore {
 /// Convert any error into a `NanoError::Other` for `rusqlite`-style conversion.
 fn map_err_to_rusqlite<E: std::error::Error>(e: E) -> NanoError {
     NanoError::Other(format!("{e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The store only opens databases inside the current working directory, so
+    /// the fixtures live under the crate's own target directory.
+    fn test_db(name: &str) -> PathBuf {
+        PathBuf::from("target").join(format!("test-history-{name}.db"))
+    }
+
+    #[test]
+    fn store_message_refuses_a_payload_over_the_cap() {
+        let store = HistoryStore::open(test_db("message-cap"), 1024).expect("open store");
+        let handle = store.handle();
+        let payload = format!(
+            "{{\"id\":\"m1\",\"content\":\"{}\"}}",
+            "x".repeat(MAX_MESSAGE_BYTES)
+        );
+        let error = store
+            .store_message(&handle, payload)
+            .expect_err("an oversized message must be refused");
+        assert!(matches!(error, NanoError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn spill_conversation_refuses_a_payload_over_the_cap() {
+        let store = HistoryStore::open(test_db("spill-bytes"), 1024).expect("open store");
+        let handle = store.handle();
+        let payload = "x".repeat(MAX_SPILL_BYTES + 1);
+        let error = store
+            .spill_conversation(&handle, "c1".to_string(), payload)
+            .expect_err("an oversized conversation must be refused");
+        assert!(matches!(error, NanoError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn spill_conversation_refuses_more_rows_than_the_cap() {
+        let store = HistoryStore::open(test_db("spill-rows"), 1024).expect("open store");
+        let handle = store.handle();
+        let messages: Vec<String> = (0..=MAX_SPILL_MESSAGES)
+            .map(|index| format!("{{\"id\":\"m{index}\"}}"))
+            .collect();
+        let payload = format!("[{}]", messages.join(","));
+        let error = store
+            .spill_conversation(&handle, "c1".to_string(), payload)
+            .expect_err("a conversation over the row cap must be refused");
+        assert!(matches!(error, NanoError::InvalidInput(_)));
+    }
 }

@@ -2,6 +2,7 @@
 name = "oc-nano-instructions"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [dependencies]
 dashmap = "6"

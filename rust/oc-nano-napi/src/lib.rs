@@ -449,9 +449,20 @@ fn prompt_get_attachment(attachment_id: String) -> napi::Result<Uint8Array> {
 // Compaction
 // ---------------------------------------------------------------------------
 
+/// Largest compaction input the addon parses (32 MiB).
+///
+/// The whole payload is parsed into memory before compaction runs, so the cap
+/// belongs on the input rather than on the output.
+const MAX_COMPACTION_INPUT_BYTES: usize = 32 * 1024 * 1024;
+
 #[napi_derive::napi]
 fn compact_spill(messages_json: String, target_bytes: i64) -> napi::Result<String> {
     wrap_napi(|| {
+        if messages_json.len() > MAX_COMPACTION_INPUT_BYTES {
+            return Err(napi::Error::from_reason(format!(
+                "compaction input exceeds {MAX_COMPACTION_INPUT_BYTES} bytes"
+            )));
+        }
         let messages: Vec<NanoMessage> = serde_json::from_str(&messages_json).map_err(|e| {
             napi::Error::from_reason(e.to_string())
         })?;
@@ -462,6 +473,11 @@ fn compact_spill(messages_json: String, target_bytes: i64) -> napi::Result<Strin
 #[napi_derive::napi]
 fn compact_prune_old(messages_json: String, target_bytes: i64) -> napi::Result<String> {
     wrap_napi(|| {
+        if messages_json.len() > MAX_COMPACTION_INPUT_BYTES {
+            return Err(napi::Error::from_reason(format!(
+                "compaction input exceeds {MAX_COMPACTION_INPUT_BYTES} bytes"
+            )));
+        }
         let messages: Vec<NanoMessage> = serde_json::from_str(&messages_json).map_err(|e| {
             napi::Error::from_reason(e.to_string())
         })?;

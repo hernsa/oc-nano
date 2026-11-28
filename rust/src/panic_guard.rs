@@ -1,9 +1,10 @@
 //! Panic-safe wrapper for napi-rs binding function bodies.
 //!
-//! The workspace release profile is compiled with `panic = "abort"`, so a panic
-//! inside an napi binding would tear down the entire host process. Individual
-//! bindings therefore wrap their bodies in `std::panic::catch_unwind` and
-//! translate any panic into a graceful `napi::Error` instead of aborting.
+//! The workspace release profile is compiled with `panic = "unwind"`, so a panic
+//! inside an napi binding unwinds instead of tearing down the entire host
+//! process. Individual bindings therefore wrap their bodies in
+//! `std::panic::catch_unwind` and translate any panic into a graceful
+//! `napi::Error` instead of letting it propagate.
 
 use napi::Result;
 
