@@ -26,7 +26,10 @@ fn test_compaction_single_pass_bounded() {
 #[test]
 fn test_compaction_emits_single_summary() {
     let msgs: Vec<NanoMessage> = (0..50).map(|i| msg(MsgRole::User, &format!("message {i}"))).collect();
-    let result = compact_messages(&msgs, 200);
+    // The target has to leave room for the summary and a slice of the tail: the
+    // compaction reserves COMPACTION_OVERHEAD + SUMMARY_EST before it keeps
+    // anything, so a target below that budget collapses to the summary alone.
+    let result = compact_messages(&msgs, 2000);
     let parsed: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap();
     // Exactly one summary system message leads the output.
     assert_eq!(parsed[0]["role"], "system");
@@ -39,7 +42,7 @@ fn test_compaction_emits_single_summary() {
 #[test]
 fn test_compact_prune_emits_no_summary() {
     let msgs: Vec<NanoMessage> = (0..50).map(|i| msg(MsgRole::User, &format!("message {i}"))).collect();
-    let result = compact_prune_messages(&msgs, 200);
+    let result = compact_prune_messages(&msgs, 2000);
     let parsed: Vec<serde_json::Value> = serde_json::from_str(&result).unwrap();
     // Pruning drops older messages entirely — no system summary inserted.
     assert!(parsed.iter().all(|v| v["role"] == "user"));
