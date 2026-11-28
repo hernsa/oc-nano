@@ -6,7 +6,7 @@
 //! `PRAGMA cache_size`, and streams conversation loads without materialising a
 //! full `Vec<Message>`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 
