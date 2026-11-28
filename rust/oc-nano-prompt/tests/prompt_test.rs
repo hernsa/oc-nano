@@ -92,27 +92,30 @@ fn test_enforce_ram_cap_evicts_oldest_messages() {
         assert!(arena.get_message(*id).is_some());
     }
 
-    // Now manually trim the conversation vec to simulate being over cap,
-    // then verify enforcement evicts from the front (oldest first).
-    // We do this by directly manipulating: remove 3 oldest, expect them gone.
-    let mut ids_ref = arena.conversations.get(&conv_id).unwrap().clone();
-    let oldest = ids_ref[0];
-    let middle = ids_ref[2];
-    let newest = ids_ref[4];
+    // The conversation vec holds the ids oldest-first. Manually evict the two oldest
+    // to simulate being just under cap, then add one more and enforce again.
+    let (oldest, second) = {
+        let ids_ref = arena.conversations.get(&conv_id).unwrap().clone();
+        (ids_ref[0], ids_ref[1])
+    };
+    arena.messages.remove(&oldest);
+    arena.messages.remove(&second);
+    // The write guard has to be released before the next call: add_message_to_conversation
+    // takes the same DashMap shard, and holding the guard across it deadlocks.
+    {
+        let mut conv_ids = arena.conversations.get_mut(&conv_id).unwrap();
+        conv_ids.drain(..2);
+    }
 
-    // Manually evict the 2 oldest to simulate being just under cap, then add
-    // one more to go over, then enforce.
-    arena.messages.remove(&ids_ref[0]);
-    arena.messages.remove(&ids_ref[1]);
-    let mut conv_ids = arena.conversations.get_mut(&conv_id).unwrap();
-    conv_ids.drain(..2);
+    let newest = arena.add_message_to_conversation(conv_id, Role::User, "new-msg".to_string());
 
-    arena.add_message_to_conversation(conv_id, Role::User, "new-msg".to_string());
-
-    // Now 4 messages remain (3 old + 1 new), still under cap
+    // Now 4 messages remain (3 old + 1 new), still under cap: enforcement is a no-op
+    // and the two manually evicted messages stay gone.
     assert_eq!(arena.enforce_ram_cap(conv_id), 0);
     assert!(arena.get_message(oldest).is_none());
-    assert!(arena.get_message(middle).is_none());
+    assert!(arena.get_message(second).is_none());
+    assert!(arena.get_message(ids[2]).is_some());
+    assert!(arena.get_message(ids[4]).is_some());
     assert!(arena.get_message(newest).is_some());
 }
 
