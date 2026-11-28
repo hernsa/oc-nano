@@ -1,17 +1,28 @@
 use oc_nano_history::{HistoryStore, Handle};
+use std::path::PathBuf;
+
+/// The store keeps its database inside the current working directory, so a
+/// fixture has to live there too. Every test gets its own file.
+fn test_db(name: &str) -> PathBuf {
+    let dir = std::env::current_dir().unwrap().join("target");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(format!("history-{name}.db"));
+    let _ = std::fs::remove_file(&path);
+    path
+}
 
 #[test]
 fn test_history_open_close_no_leak() {
-    let store = HistoryStore::open(":memory:", 8192).unwrap();
+    let store = HistoryStore::open(test_db("close"), 8192).unwrap();
     let handle: Handle = store.handle();
     HistoryStore::close(&handle).unwrap();
     // after close, store_message should error (connection dropped)
-    assert!(store.store_message(&handle, "{}").is_err());
+    assert!(store.store_message(&handle, "{}".to_string()).is_err());
 }
 
 #[test]
 fn test_history_store_and_load_streaming() {
-    let store = HistoryStore::open(":memory:", 8192).unwrap();
+    let store = HistoryStore::open(test_db("streaming"), 8192).unwrap();
     let handle = store.handle();
     let msg = r#"{"id":"11111111-1111-1111-1111-111111111111","conversation_id":"conv-1","role":"user","content":"hello world","created_at":"2026-11-10T00:00:00+00:00"}"#;
     assert!(store.store_message(&handle, msg.to_string()).is_ok());
@@ -25,7 +36,7 @@ fn test_history_store_and_load_streaming() {
 
 #[test]
 fn test_history_spill_conversation() {
-    let store = HistoryStore::open(":memory:", 8192).unwrap();
+    let store = HistoryStore::open(test_db("spill"), 8192).unwrap();
     let handle = store.handle();
     let messages = r#"[
         {"id":"22222222-2222-2222-2222-222222222222","conversation_id":"conv-2","role":"assistant","content":"hi there","created_at":"2026-11-10T00:00:01+00:00"},
@@ -42,7 +53,7 @@ fn test_history_spill_conversation() {
 
 #[test]
 fn test_history_prune_before_no_vacuum_every_call() {
-    let store = HistoryStore::open(":memory:", 8192).unwrap();
+    let store = HistoryStore::open(test_db("prune-before"), 8192).unwrap();
     let handle = store.handle();
     let count = store
         .prune_before(&handle, "2000-01-01T00:00:00+00:00".to_string())
@@ -52,7 +63,7 @@ fn test_history_prune_before_no_vacuum_every_call() {
 
 #[test]
 fn test_history_prune_old_vacuums() {
-    let store = HistoryStore::open(":memory:", 8192).unwrap();
+    let store = HistoryStore::open(test_db("prune-old"), 8192).unwrap();
     let handle = store.handle();
     // ttl of 0 makes everything older than now eligible; empty DB -> 0 deleted
     let count = store.prune_old(&handle, 0).unwrap();
