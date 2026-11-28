@@ -103,7 +103,7 @@ impl HistoryStore {
             .map_err(map_err_to_rusqlite)?
             .canonicalize()
             .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-        let canonical_resolved = resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
+        let canonical_resolved = canonicalize_allowing_missing_tail(&resolved);
 
         if !canonical_resolved.starts_with(&canonical_root) {
             return Err(NanoError::InvalidInput(
@@ -320,6 +320,39 @@ impl HistoryStore {
 /// Convert any error into a `NanoError::Other` for `rusqlite`-style conversion.
 fn map_err_to_rusqlite<E: std::error::Error>(e: E) -> NanoError {
     NanoError::Other(format!("{e}"))
+}
+
+/// Canonicalize a path whose last segments may not exist yet.
+///
+/// `canonicalize` fails on a file that has not been created, so the database of a
+/// store that has never run would be compared with the allowed directory in its
+/// plain form while that directory is canonical. On Windows the two spell the
+/// same place differently (`D:\dir` against `\\?\D:\dir`), so the containment
+/// check would refuse a database that sits exactly where it belongs. Canonicalize
+/// the deepest directory that does exist and put the missing names back.
+fn canonicalize_allowing_missing_tail(path: &Path) -> PathBuf {
+    let mut missing: Vec<std::ffi::OsString> = Vec::new();
+    let mut current = path.to_path_buf();
+    loop {
+        match current.canonicalize() {
+            Ok(canonical) => {
+                let mut resolved = canonical;
+                for name in missing.iter().rev() {
+                    resolved.push(name);
+                }
+                return resolved;
+            }
+            Err(_) => match current.file_name() {
+                Some(name) => {
+                    missing.push(name.to_os_string());
+                    if !current.pop() {
+                        return path.to_path_buf();
+                    }
+                }
+                None => return path.to_path_buf(),
+            },
+        }
+    }
 }
 
 #[cfg(test)]
